@@ -1,8 +1,8 @@
 using System.Windows;
 using System.Runtime.Versioning;
-using DiscordRamLimiter.Services;
+using SmartRamOptimizer.Services;
 
-namespace DiscordRamLimiter;
+namespace SmartRamOptimizer;
 
 [SupportedOSPlatform("windows")]
 public partial class App : System.Windows.Application

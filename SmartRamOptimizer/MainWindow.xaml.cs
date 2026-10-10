@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security;
 using System.Windows;
@@ -9,20 +8,19 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
-using DiscordRamLimiter.Models;
-using DiscordRamLimiter.Services;
+using SmartRamOptimizer.Models;
+using SmartRamOptimizer.Services;
+using SmartRamOptimizer.Targets;
 using Drawing = System.Drawing;
-using Drawing2D = System.Drawing.Drawing2D;
 using Forms = System.Windows.Forms;
-using Imaging = System.Drawing.Imaging;
 using MediaColor = System.Windows.Media.Color;
 
-namespace DiscordRamLimiter;
+namespace SmartRamOptimizer;
 
 [SupportedOSPlatform("windows")]
 public partial class MainWindow : Window, IDisposable
 {
-    private readonly DiscordLimiterService _limiterService = new();
+    private readonly RamLimiterService _limiterService = new(AppTargets.All);
     private readonly Forms.NotifyIcon _trayIcon;
     private readonly Drawing.Icon? _customTrayIcon;
     private readonly bool _startMinimized;
@@ -40,10 +38,10 @@ public partial class MainWindow : Window, IDisposable
         _customTrayIcon = LoadTrayIcon();
         _trayIcon = BuildTrayIcon(_customTrayIcon, out _startupMenuItem);
         _limiterService.SnapshotUpdated += LimiterService_SnapshotUpdated;
-        _limiterService.AllDiscordProcessesExited += LimiterService_AllDiscordProcessesExited;
+        _limiterService.AllTargetProcessesExited += LimiterService_AllTargetProcessesExited;
     }
 
-    private async void LimiterService_AllDiscordProcessesExited(object? sender, EventArgs e)
+    private async void LimiterService_AllTargetProcessesExited(object? sender, EventArgs e)
     {
         await Dispatcher.InvokeAsync(async () =>
         {
@@ -74,30 +72,29 @@ public partial class MainWindow : Window, IDisposable
         UpdateStatus(isActive);
     }
 
-    private void LimiterService_SnapshotUpdated(object? sender, DiscordMemorySnapshot snapshot)
+    private void LimiterService_SnapshotUpdated(object? sender, MemorySnapshot snapshot)
     {
         Dispatcher.Invoke(() =>
         {
-            DiscordRamText.Text = FormatBytes(snapshot.DiscordWorkingSetBytes);
-            DiscordProcessCountText.Text = snapshot.DiscordProcessCount switch
-            {
-                0 => "0 processes",
-                1 => "1 process",
-                _ => $"{snapshot.DiscordProcessCount} processes"
-            };
+            // Discord card
+            var discord = snapshot.For(DiscordTarget.Instance);
+            DiscordRamText.Text = FormatBytes(discord.WorkingSetBytes);
+            DiscordProcessCountText.Text = FormatProcessCount(discord.ProcessCount);
 
-            BraveRamText.Text = FormatBytes(snapshot.BraveWorkingSetBytes);
-            BraveProcessCountText.Text = snapshot.BraveProcessCount switch
-            {
-                0 => "0 processes",
-                1 => "1 process",
-                _ => $"{snapshot.BraveProcessCount} processes"
-            };
+            // Brave card
+            var brave = snapshot.For(BraveTarget.Instance);
+            BraveRamText.Text = FormatBytes(brave.WorkingSetBytes);
+            BraveProcessCountText.Text = FormatProcessCount(brave.ProcessCount);
 
-            TotalRamText.Text = $"Total RAM: {FormatBytes(snapshot.CurrentWorkingSetBytes)} ({snapshot.ProcessCount} processes)";
+            TotalRamText.Text = $"Total RAM: {FormatBytes(snapshot.TotalWorkingSetBytes)} ({snapshot.TotalProcessCount} processes)";
 
             UpdateStatus(snapshot.IsLimiterActive);
         });
+    }
+
+    private static string FormatProcessCount(int processCount)
+    {
+        return processCount == 1 ? "1 process" : $"{processCount} processes";
     }
 
     private void UpdateStatus(bool isActive)
@@ -242,7 +239,7 @@ public partial class MainWindow : Window, IDisposable
 
     private void ShowStartupError()
     {
-        _trayIcon.BalloonTipTitle = "Discord RAM Limiter";
+        _trayIcon.BalloonTipTitle = "Smart RAM Optimizer";
         _trayIcon.BalloonTipText = "Could not update Windows startup settings.";
         _trayIcon.BalloonTipIcon = Forms.ToolTipIcon.Warning;
         _trayIcon.ShowBalloonTip(2200);
@@ -297,51 +294,6 @@ public partial class MainWindow : Window, IDisposable
             ? Drawing.Icon.ExtractAssociatedIcon(processPath)
             : null;
     }
-
-    private static Drawing.Rectangle FindVisibleBounds(Drawing.Bitmap bitmap)
-    {
-        var minX = bitmap.Width;
-        var minY = bitmap.Height;
-        var maxX = -1;
-        var maxY = -1;
-
-        for (var y = 0; y < bitmap.Height; y++)
-        {
-            for (var x = 0; x < bitmap.Width; x++)
-            {
-                if (bitmap.GetPixel(x, y).A == 0)
-                {
-                    continue;
-                }
-
-                minX = Math.Min(minX, x);
-                minY = Math.Min(minY, y);
-                maxX = Math.Max(maxX, x);
-                maxY = Math.Max(maxY, y);
-            }
-        }
-
-        return maxX >= 0
-            ? Drawing.Rectangle.FromLTRB(minX, minY, maxX + 1, maxY + 1)
-            : new Drawing.Rectangle(0, 0, bitmap.Width, bitmap.Height);
-    }
-
-    private static Drawing.Icon CreateIconFromBitmap(Drawing.Bitmap bitmap)
-    {
-        var handle = bitmap.GetHicon();
-        try
-        {
-            using var icon = Drawing.Icon.FromHandle(handle);
-            return (Drawing.Icon)icon.Clone();
-        }
-        finally
-        {
-            DestroyIcon(handle);
-        }
-    }
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool DestroyIcon(IntPtr hIcon);
 
     private void Window_StateChanged(object? sender, EventArgs e)
     {

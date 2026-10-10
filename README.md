@@ -1,38 +1,90 @@
 # Smart RAM Optimizer
 
-Smart RAM Optimizer is a lightweight Windows desktop application built with C# and WPF that monitors and optimizes memory usage for Electron and Chromium applications like **Discord** and **Brave Browser**.
+A small Windows tray app that keeps the RAM usage of **Discord** and **Brave Browser** low while they run.
 
-It uses native Windows working set trimming (`SetProcessWorkingSetSize`) to release unused memory caches from physical RAM, reducing memory usage from ~1-3 GB down to ~30-50 MB per app.
+It started as a Discord-only RAM limiter (hence the repository name) and later gained Brave support. Both live in one app, but the code for each is kept in its own file so it is easy to see which part does what.
 
-## Features
+![Smart RAM Optimizer window](Screenshots/app-preview.png)
 
-- **Modern Dark WPF UI:** Sleek dashboard with live RAM metrics.
-- **Individual Per-App Tracking:** Dedicated status cards for Discord and Brave showing live RAM usage and active process count.
-- **Automated Lifecycle:** Automatically starts monitoring when target apps are launched and automatically closes when all target apps are exited.
-- **System Tray Integration:** Minimizes to the Windows system tray; close button (`X`) minimizes to tray to keep memory optimized in the background.
-- **Zero Heavy Overhead:** Consumes < 0.1% CPU in the background.
+## What it does
 
-## Supported Processes
+- Watches every Discord and Brave process and shows live RAM usage and process count for each app on its own card.
+- While the limiter is **ON**, trims the memory of those processes every 1.5 seconds.
+- Starts Discord (or Brave, if Discord is not installed) when neither is running, and closes itself once both have exited.
+- Lives in the system tray: the minimize and close buttons both hide the window. Use the tray icon's **Exit** to quit.
+- Optional **Launch with Windows in tray** setting.
+
+## The two limiters
+
+| | Discord | Brave |
+|---|---|---|
+| Code | [`Targets/DiscordTarget.cs`](SmartRamOptimizer/Targets/DiscordTarget.cs) | [`Targets/BraveTarget.cs`](SmartRamOptimizer/Targets/BraveTarget.cs) |
+| Processes trimmed | `Discord`, `DiscordCanary`, `DiscordPTB`, `DiscordDevelopment` | `brave` |
+| How it is launched | `%LocalAppData%\Discord\Update.exe --processStart Discord.exe` | `C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe` |
+| Logo | [`Assets/Discord/`](SmartRamOptimizer/Assets/Discord) | [`Assets/Brave/`](SmartRamOptimizer/Assets/Brave) |
+| Dashboard card | `Discord Card` in [`MainWindow.xaml`](SmartRamOptimizer/MainWindow.xaml) | `Brave Card` in [`MainWindow.xaml`](SmartRamOptimizer/MainWindow.xaml) |
+
+Everything else is shared and does not care which app it is working on.
+
+## How it works
+
+Each app is described by an `AppTarget`: a name, a list of process names, and how to launch it. `RamLimiterService` takes the list of targets and loops:
+
+1. Measure the working set (physical RAM in use) of every process of every target.
+2. If the limiter is on, call the Windows API `SetProcessWorkingSetSize(handle, -1, -1)` on each process. This asks Windows to move the process's pages out of physical RAM.
+3. Measure again and send a snapshot to the window, which updates the two cards.
+4. Wait 1.5 seconds and repeat.
+
+### What "limiting" really means
+
+Trimming does not make Discord or Brave need less memory. Windows moves their pages to the standby list or the page file, and the apps pull them back in when they touch them again. The number in Task Manager drops sharply, and the freed RAM is available to other programs, but an app that is being trimmed constantly may feel slower when you switch back to it. Turn the limiter off with the big toggle if that bothers you.
+
+## Project layout
 
 ```text
-Discord
-DiscordCanary
-DiscordPTB
-DiscordDevelopment
-brave
+SmartRamOptimizer.sln
+SmartRamOptimizer/
+├── Targets/
+│   ├── AppTarget.cs          what a "target app" is (shared)
+│   ├── DiscordTarget.cs      Discord only
+│   ├── BraveTarget.cs        Brave only
+│   └── AppTargets.cs         the list of apps the optimizer manages
+├── Services/
+│   ├── RamLimiterService.cs  measure-and-trim loop (shared)
+│   └── StartupService.cs     "launch with Windows" registry entry
+├── Models/
+│   └── MemorySnapshot.cs     the data sent from the service to the window
+├── Assets/
+│   ├── Discord/              Discord logo
+│   ├── Brave/                Brave logos
+│   └── app_icon.*            the app's own icon
+├── MainWindow.xaml(.cs)      dashboard window and tray icon
+└── App.xaml(.cs)             startup, handles the --minimized argument
 ```
+
+### Adding another app
+
+1. Copy `BraveTarget.cs`, rename it, and fill in the process names and install path.
+2. Add it to the list in `AppTargets.cs`. The limiter picks it up from there.
+3. Add a card for it in `MainWindow.xaml` and fill it in `LimiterService_SnapshotUpdated` in `MainWindow.xaml.cs`.
 
 ## Requirements
 
-- **OS:** Windows 10 or Windows 11 (x64)
-- **Runtime:** .NET 10 Desktop Runtime (or .NET 10 SDK to build from source)
+- Windows 10 or 11 (x64)
+- [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) to run, or the .NET 10 SDK to build
 
-## Building From Source
+## Build and run
 
 ```powershell
-dotnet build .\DiscordRamLimiter\DiscordRamLimiter.csproj -c Release
+dotnet build .\SmartRamOptimizer.sln -c Release
 ```
+
+```powershell
+.\SmartRamOptimizer\bin\Release\net10.0-windows\SmartRamOptimizer.exe
+```
+
+Add `--minimized` to start hidden in the tray, which is what the "Launch with Windows" option does.
 
 ## License
 
-This project is licensed under the MIT License.
+MIT. See [LICENSE](LICENSE).

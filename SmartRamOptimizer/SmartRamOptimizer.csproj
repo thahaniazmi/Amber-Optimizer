@@ -14,12 +14,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Resource Include="Assets\*.png" />
-    <Resource Include="Assets\*.ico" />
-    <Content Include="Assets\*.png">
+    <!-- ** so the per-app folders (Assets\Discord, Assets\Brave) are picked up too. -->
+    <Resource Include="Assets\**\*.png" />
+    <Resource Include="Assets\**\*.ico" />
+    <Content Include="Assets\**\*.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Assets\*.ico">
+    <Content Include="Assets\**\*.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

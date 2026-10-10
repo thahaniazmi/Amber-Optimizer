@@ -2,13 +2,14 @@ using System.Diagnostics;
 using System.IO;
 using Microsoft.Win32;
 
-namespace DiscordRamLimiter.Services;
+namespace SmartRamOptimizer.Services;
 
 public static class StartupService
 {
     public const string MinimizedArgument = "--minimized";
 
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    // Kept from the app's original name so existing startup entries keep working.
     private const string RunValueName = "DiscordRamLimiter";
 
     public static bool IsLaunchAtStartupEnabled()
