@@ -49,28 +49,19 @@ Gamers and heavy multitaskers frequently suffer from background clients and brow
 3. **Media & Streaming:**
    * **Spotify:** `Spotify` (Electron desktop player; hoards 500MB–1GB RAM while playing in the background during games)
 
-#### B. Architectural Decision: Auto-Detection vs. Curated App List
+#### B. Decouple Application Lifecycle (No Auto-Launch / Auto-Exit with Discord or Brave)
 
-Claude, please evaluate and choose the best UX/architecture between these approaches (or implement the recommended Hybrid solution):
+In earlier iterations, the utility was tightly coupled to Discord and Brave:
+* `EnsureTargetLaunched()` automatically launched Discord or Brave if neither was running.
+* `AllTargetProcessesExited` automatically closed the optimizer when target processes exited.
+* Previous concepts contemplated launching the optimizer whenever Discord or Brave opened.
 
-* **Approach 1: Auto-Detecting Installed / Running Apps on the User's PC**
-  * *How it works:* The optimizer scans running processes (and/or standard registry uninstall/install paths) to detect which supported apps are actually installed or active on the PC.
-  * *Pros:* Zero manual setup for the user; only shows apps relevant to their PC.
-  * *Cons:* If an app isn't actively running, scanning arbitrary processes or registry keys can introduce lag or false positives.
+**Must be removed completely:**
+1. **No Auto-Launching Target Apps:** Remove `EnsureTargetLaunched()` from `RamLimiterService.cs` (and remove `TryLaunch()` / `_getLaunchInfo` from `AppTarget.cs`). The optimizer must never launch external applications on its own.
+2. **No External Launch Coupling:** Ensure there are no background triggers, registry hooks, or wrappers configured to automatically launch the optimizer when Discord or Brave is opened. The optimizer is a standalone utility that the user starts manually or via the Windows Startup checkbox.
+3. **No Auto-Exit When Apps Close:** Remove `AllTargetProcessesExited` event and any logic in `MainWindow.xaml.cs` that shuts down the optimizer when targets terminate. The optimizer should stay running quietly in the system tray, ready to trim memory whenever monitored apps are opened.
 
-* **Approach 2: Curated Catalog of Covered Apps (Presets)**
-  * *How it works:* The app presents a clean catalog of covered apps (Discord, Brave, Steam, Chrome, Spotify, Opera GX, Epic Games, etc.) that users can enable/disable with checkboxes or toggles.
-  * *Pros:* Clear visibility into exactly what the tool supports; predictable and easy to test.
-  * *Cons:* May clutter the UI with apps the user does not have installed unless filtered.
-
-* **Approach 3: The Hybrid Model (Recommended):**
-  * Maintain a curated preset library of high-RAM gamer apps (with built-in process names, display names, and icons).
-  * Automatically check running processes on startup:
-    * If an app from the catalog is running or detected on the system, show it as active in the dashboard by default.
-    * In the "+ Add / Manage Apps" modal, list all covered apps with badges indicating whether they are currently detected, with simple on/off switches.
-    * Include a "Custom Process" input field so power users can type any custom executable name (e.g., `obs64`, `vmware`).
-
-#### C. Implementation Requirements
+#### C. Implementation Requirements for "Add Apps"
 1. **Modular Targets or Configurable Target List:**
    * Implement target definitions for these high-RAM applications in `SmartRamOptimizer/Targets/` (e.g. `SteamTarget.cs`, `ChromeTarget.cs`, `SpotifyTarget.cs`, `EdgeTarget.cs`, `OperaGxTarget.cs`).
    * Support an active/enabled toggle per app, or a settings/selection modal so users can choose which applications they want actively monitored and limited.
@@ -183,7 +174,7 @@ Document in the project README or comments what the owner must set up:
 > [!IMPORTANT]
 > **DO NOT DELETE THIS FILE PREMATURELY:**
 > 1. Mention to your user at the very beginning that this `CLAUDE_TASKS.md` file was drafted with suggestions from other collaborators.
-> 2. Present and explain the suggested features, presets, and architectural trade-offs (e.g. Curated Catalog vs Auto-detection) to your user.
+> 2. Present and explain the suggested features, presets, and decoupling cleanup items to your user.
 > 3. Agree on the scope and design together with your user before writing any code.
 > 4. Keep this file intact throughout the implementation process as your master reference.
 > 5. Only remove or archive this file once everything is built, tested, and your user explicitly confirms they no longer need it.
