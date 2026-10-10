@@ -1,0 +1,183 @@
+<Window x:Class="SmartRamOptimizer.AddAppWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Add application"
+        Width="460"
+        Height="600"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        FontFamily="{StaticResource AppFont}"
+        Foreground="{StaticResource TextBrush}"
+        UseLayoutRounding="True"
+        Loaded="Window_Loaded"
+        MouseLeftButtonDown="Window_MouseLeftButtonDown">
+    <Window.Resources>
+        <!-- One running app: icon, name, usage (or a warning), Add button. -->
+        <DataTemplate x:Key="CandidateTemplate">
+            <Border x:Name="Row"
+                    Padding="0,10"
+                    BorderBrush="{StaticResource LineBrush}"
+                    BorderThickness="0,1,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <Grid Width="36" Height="36">
+                        <Border x:Name="Avatar"
+                                CornerRadius="10"
+                                Background="{StaticResource ControlBrush}">
+                            <TextBlock Text="{Binding Initial}"
+                                       Foreground="{StaticResource SubtleBrush}"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                        </Border>
+                        <Image Source="{Binding Icon}"
+                               Width="32"
+                               Height="32"
+                               RenderOptions.BitmapScalingMode="HighQuality" />
+                    </Grid>
+
+                    <StackPanel Grid.Column="1"
+                                Margin="12,0,10,0"
+                                VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Name}"
+                                   FontSize="14"
+                                   FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="Detail"
+                                   Text="{Binding Detail}"
+                                   Margin="0,2,0,0"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   FontSize="12"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+
+                    <Button Grid.Column="2"
+                            Style="{StaticResource PillButtonStyle}"
+                            Content="{Binding ButtonText}"
+                            IsEnabled="{Binding CanAdd}"
+                            AutomationProperties.Name="{Binding AddLabel}"
+                            Click="AddButton_Click" />
+                </Grid>
+            </Border>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource PreviousData}}" Value="{x:Null}">
+                    <Setter TargetName="Row" Property="BorderThickness" Value="0" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding HasIcon}" Value="True">
+                    <Setter TargetName="Avatar" Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsWarning}" Value="True">
+                    <Setter TargetName="Detail" Property="Foreground" Value="{StaticResource AmberBrush}" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid Margin="22">
+        <Border Style="{StaticResource WindowSurfaceStyle}" />
+
+        <Grid Margin="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="52" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Title bar -->
+            <Grid Grid.Row="0" Margin="24,8,16,0">
+                <TextBlock Text="Add application"
+                           VerticalAlignment="Center"
+                           FontSize="16"
+                           FontWeight="Bold" />
+                <Button Style="{StaticResource ChromeButtonStyle}"
+                        HorizontalAlignment="Right"
+                        Background="#2A2130"
+                        Foreground="{StaticResource RedBrush}"
+                        Content="&#xE8BB;"
+                        FontSize="10"
+                        IsCancel="True"
+                        ToolTip="Close"
+                        AutomationProperties.Name="Close"
+                        Click="CloseButton_Click" />
+            </Grid>
+
+            <TextBox x:Name="SearchBox"
+                     Grid.Row="1"
+                     Margin="22,8,22,0"
+                     Style="{StaticResource SearchBoxStyle}"
+                     Tag="Search running apps"
+                     AutomationProperties.Name="Search running apps"
+                     AutomationProperties.AutomationId="SearchBox"
+                     TextChanged="SearchBox_TextChanged" />
+
+            <Border Grid.Row="2"
+                    Margin="22,12,22,0"
+                    Background="{StaticResource InsetBrush}"
+                    BorderBrush="{StaticResource LineBrush}"
+                    BorderThickness="1"
+                    CornerRadius="16"
+                    Padding="14,3,10,3">
+                <Grid>
+                    <ScrollViewer Focusable="False"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="CandidateList"
+                                      ItemTemplate="{StaticResource CandidateTemplate}"
+                                      Margin="0,0,4,0"
+                                      Focusable="False" />
+                    </ScrollViewer>
+                    <TextBlock x:Name="EmptyText"
+                               Text="Looking for running apps…"
+                               Foreground="{StaticResource MutedBrush}"
+                               FontSize="12"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+                </Grid>
+            </Border>
+
+            <StackPanel Grid.Row="3" Margin="22,14,22,22">
+                <TextBlock x:Name="MessageText"
+                           Margin="2,0,2,12"
+                           Foreground="{StaticResource AmberBrush}"
+                           FontSize="12"
+                           TextWrapping="Wrap"
+                           Visibility="Collapsed" />
+                <Grid>
+                    <Button Style="{StaticResource PillButtonStyle}"
+                            HorizontalAlignment="Left"
+                            Height="34"
+                            AutomationProperties.Name="Browse for an application"
+                            AutomationProperties.AutomationId="BrowseButton"
+                            Click="BrowseButton_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE8E5;"
+                                       FontFamily="{StaticResource IconFont}"
+                                       FontSize="13"
+                                       Margin="0,1,8,0"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Text="Browse for an .exe" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource PillButtonStyle}"
+                            HorizontalAlignment="Right"
+                            Height="34"
+                            Background="{StaticResource AccentBrush}"
+                            Content="Done"
+                            AutomationProperties.AutomationId="DoneButton"
+                            Click="CloseButton_Click" />
+                </Grid>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>
