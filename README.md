@@ -2,7 +2,7 @@
 
 A small Windows tray app that keeps the RAM usage of **Discord** and **Brave Browser** low while they run.
 
-It started as a Discord-only RAM limiter (hence the repository name) and later gained Brave support. Both live in one app, but the code for each is kept in its own file so it is easy to see which part does what.
+It started as a Discord-only RAM limiter and later gained Brave support. Both live in one app, but the code for each is kept in its own file so it is easy to see which part does what.
 
 ![Smart RAM Optimizer window](Screenshots/app-preview.png)
 
