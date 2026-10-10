@@ -12,7 +12,7 @@ public sealed record AppCandidate(
     long WorkingSetBytes,
     int ProcessCount,
     ImageSource? Icon,
-    bool IsAntiCheatRisk);
+    AppAdvice Advice);
 
 /// <summary>Builds the list shown in the "Add application" window.</summary>
 internal static class RunningAppFinder
@@ -68,7 +68,7 @@ internal static class RunningAppFinder
                 group.Bytes,
                 group.Count,
                 IconService.GetIcon(exePath),
-                AppRules.IsAntiCheatRisk(processName)));
+                AppRules.GetAdvice(processName)));
         }
 
         candidates.Sort((left, right) => right.WorkingSetBytes.CompareTo(left.WorkingSetBytes));
@@ -100,7 +100,7 @@ internal static class RunningAppFinder
             0,
             0,
             IconService.GetIcon(exePath),
-            AppRules.IsAntiCheatRisk(processName));
+            AppRules.GetAdvice(processName));
     }
 
     // "Google Chrome" reads better than "chrome"; fall back to the process name when the exe has no description.

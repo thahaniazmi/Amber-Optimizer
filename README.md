@@ -9,7 +9,7 @@ It started as a Discord-only RAM limiter and later gained Brave support. Those t
 ## What it does
 
 - Lists the apps it manages, each with its own on/off switch, live RAM usage and process count.
-- **Add application** shows what is running right now, largest first, or lets you browse for an `.exe`. Point at a row to show its remove button.
+- **Add application** shows what is running right now, largest first, or lets you browse for an `.exe`. Each app is marked **Good to optimize**, **Not recommended**, or left unmarked when the optimizer has no opinion. Point at a row in the main list to show its remove button.
 - Shows what it has achieved: memory freed right now, memory freed this session, and overall system memory.
 - Lives in the system tray: the minimize and close buttons both hide the window. Quit from the settings menu (gear button) or the tray icon's **Exit**.
 - Remembers your apps and settings between runs.
@@ -45,12 +45,26 @@ Trimming does not make an app need less memory. Windows moves its pages to the s
 ### Safety
 
 - Windows system processes (`csrss`, `lsass`, `svchost`, `dwm`, anything in the Windows folder, and so on) cannot be added.
-- Games protected by kernel anti-cheat are flagged in the picker and need a confirmation. Touching their memory from another program can get you kicked or flagged, so it is best not to add them.
+- Apps marked **Not recommended** in the picker need a confirmation before they are added, and the message says why. There are three kinds:
+  - Games and launchers protected by anti-cheat (Valorant and the Riot Client, Fortnite, Roblox and so on). Touching their memory from another program can get you kicked or flagged.
+  - Recording, streaming and audio-mixing apps such as OBS. They work in real time in the background, so trimming them causes dropped frames and glitches.
+  - Virtual machines and Android emulators, which slow to a crawl when their memory is pushed to disk.
+- Apps marked **Good to optimize** are known memory-heavy apps that cope well with trimming: browsers (Chrome, Edge, Brave, Firefox, Opera, Vivaldi), chat apps (Discord, Slack, Teams, Telegram, WhatsApp, Signal), launcher helpers (Steam WebHelper, Epic Games Launcher, Battle.net, EA Desktop, GOG Galaxy, Ubisoft Connect), Spotify and a few Electron tools.
+- Both lists live in `Services/AppRules.cs`. They are hand-picked from how these apps are known to behave, so treat an unmarked app as "probably fine, try it" and a warning as worth heeding.
 - Apps running as administrator cannot be trimmed unless the optimizer is also run as administrator. Their row says "needs administrator".
 
 ## Settings
 
 Settings are stored in `%AppData%\SmartRamOptimizer\settings.json`. Unexpected errors are written to `error.log` in the same folder. Only one copy of the optimizer runs at a time; starting it again brings up the existing window.
+
+## Support button
+
+The **Buy us a coffee** button at the bottom of the window opens a donation page in the default browser. It ships with a placeholder link, and while the placeholder is in place the button only shows a "not set up yet" message. To switch it on:
+
+1. Create an account at [Buy Me a Coffee](https://www.buymeacoffee.com/) or [Ko-fi](https://ko-fi.com/).
+2. Claim your page link, for example `https://buymeacoffee.com/myteam`.
+3. Connect a payout method (Stripe or PayPal) in that site's settings so donations can reach you.
+4. Replace `YOUR_USERNAME` in `CoffeeUrl` in `SmartRamOptimizer/AppConfig.cs` with your page name (or replace the whole link if you use Ko-fi) and rebuild. The link must start with `https://`.
 
 ## Project layout
 
@@ -61,7 +75,7 @@ SmartRamOptimizer/
 │   ├── RamLimiterService.cs  background measure-and-trim loop
 │   ├── ProcessTools.cs       trim a process, find its exe, read system memory
 │   ├── NativeMethods.cs      the Windows API declarations
-│   ├── AppRules.cs           protected processes and the anti-cheat list
+│   ├── AppRules.cs           protected processes, warnings and recommendations
 │   ├── RunningAppFinder.cs   builds the "Add application" list
 │   ├── IconService.cs        reads an app's icon from its exe
 │   ├── SettingsService.cs    loads and saves settings.json
@@ -74,6 +88,7 @@ SmartRamOptimizer/
 │   └── MemorySnapshot.cs     the data sent from the loop to the window
 ├── ViewModels/               state behind the two windows
 ├── Assets/                   the app's own icon
+├── AppConfig.cs              the support-button link
 ├── MainWindow.xaml(.cs)      application list and stats
 ├── AddAppWindow.xaml(.cs)    "Add application" picker
 └── App.xaml(.cs)             startup, tray, shared styles, the --minimized argument

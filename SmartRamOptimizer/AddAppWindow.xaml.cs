@@ -106,12 +106,12 @@ public partial class AddAppWindow : Window
 
     private bool TryAdd(AppCandidate candidate)
     {
-        if (candidate.IsAntiCheatRisk)
+        if (candidate.Advice.Suitability == Suitability.NotRecommended)
         {
             var answer = MessageBox.Show(
                 this,
-                $"{candidate.Name} looks like a game protected by anti-cheat.\n\n"
-                + "Trimming its memory from another program can get you kicked from a match or flagged. "
+                $"Optimizing {candidate.Name} is not recommended.\n\n"
+                + $"{candidate.Advice.Reason}\n\n"
                 + "Add it anyway?",
                 AppName,
                 MessageBoxButton.YesNo,

@@ -19,6 +19,7 @@
         <SolidColorBrush x:Key="GreenBrush" Color="#36CE7D" />
         <SolidColorBrush x:Key="RedBrush" Color="#FF8F9B" />
         <SolidColorBrush x:Key="AmberBrush" Color="#F5B85C" />
+        <SolidColorBrush x:Key="CoffeeBrush" Color="#FFDD00" />
 
         <Style x:Key="FocusRing">
             <Setter Property="Control.Template">

@@ -20,8 +20,10 @@
         <DataTemplate x:Key="CandidateTemplate">
             <Border x:Name="Row"
                     Padding="0,10"
+                    Background="Transparent"
                     BorderBrush="{StaticResource LineBrush}"
-                    BorderThickness="0,1,0,0">
+                    BorderThickness="0,1,0,0"
+                    ToolTip="{Binding Advice}">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
@@ -78,6 +80,9 @@
                 </DataTrigger>
                 <DataTrigger Binding="{Binding IsWarning}" Value="True">
                     <Setter TargetName="Detail" Property="Foreground" Value="{StaticResource AmberBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsRecommended}" Value="True">
+                    <Setter TargetName="Detail" Property="Foreground" Value="{StaticResource GreenBrush}" />
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>

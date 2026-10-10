@@ -12,10 +12,14 @@ public sealed class CandidateRowViewModel : ObservableObject
     {
         Candidate = candidate;
 
+        var size = ByteFormat.Format(candidate.WorkingSetBytes);
         var processes = candidate.ProcessCount == 1 ? "1 process" : $"{candidate.ProcessCount} processes";
-        Detail = candidate.IsAntiCheatRisk
-            ? "Anti-cheat game · not recommended"
-            : $"{ByteFormat.Format(candidate.WorkingSetBytes)} · {processes}";
+        Detail = candidate.Advice.Suitability switch
+        {
+            Suitability.NotRecommended => candidate.Advice.Label,
+            Suitability.Recommended => $"{candidate.Advice.Label} · {size}",
+            _ => $"{size} · {processes}"
+        };
     }
 
     public AppCandidate Candidate { get; }
@@ -24,7 +28,12 @@ public sealed class CandidateRowViewModel : ObservableObject
 
     public string Detail { get; }
 
-    public bool IsWarning => Candidate.IsAntiCheatRisk;
+    /// <summary>The longer explanation behind a recommendation or warning; null when there is none.</summary>
+    public string? Advice => Candidate.Advice.Reason.Length > 0 ? Candidate.Advice.Reason : null;
+
+    public bool IsWarning => Candidate.Advice.Suitability == Suitability.NotRecommended;
+
+    public bool IsRecommended => Candidate.Advice.Suitability == Suitability.Recommended;
 
     public ImageSource? Icon => Candidate.Icon;
 

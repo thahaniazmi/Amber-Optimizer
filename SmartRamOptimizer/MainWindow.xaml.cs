@@ -1,6 +1,8 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Input;
+using SmartRamOptimizer.Services;
 using SmartRamOptimizer.ViewModels;
 
 namespace SmartRamOptimizer;
@@ -81,6 +83,30 @@ public partial class MainWindow : Window
         if ((sender as FrameworkElement)?.DataContext is AppRowViewModel row)
         {
             _viewModel.RemoveApp(row);
+        }
+    }
+
+    private void CoffeeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!AppConfig.IsCoffeeUrlConfigured)
+        {
+            MessageBox.Show(
+                this,
+                "The support page hasn't been set up yet. Thanks for wanting to help!",
+                Title,
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        try
+        {
+            // UseShellExecute hands the link to the default browser.
+            Process.Start(new ProcessStartInfo(AppConfig.CoffeeUrl) { UseShellExecute = true })?.Dispose();
+        }
+        catch (Exception exception) when (exception is Win32Exception or InvalidOperationException)
+        {
+            ErrorLog.Write(exception);
         }
     }
 
