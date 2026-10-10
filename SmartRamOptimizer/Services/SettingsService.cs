@@ -9,7 +9,7 @@ public static class SettingsService
 {
     public static string DataDirectory { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "SmartRamOptimizer");
+        AppIdentity.Name);
 
     private static readonly string FilePath = Path.Combine(DataDirectory, "settings.json");
 
@@ -17,7 +17,10 @@ public static class SettingsService
     {
         if (!File.Exists(FilePath))
         {
-            return AppSettings.CreateDefault();
+            // Saved straight away, so the list a new user is given does not change on the next start.
+            var created = FirstRunSetup.CreateSettings();
+            Save(created);
+            return created;
         }
 
         try
@@ -114,6 +117,15 @@ public static class SettingsService
         }
 
         settings.Apps = apps;
+
+        // The window is only ever placed at a position that has both halves and is a real number.
+        if (settings.WindowLeft is not { } left || settings.WindowTop is not { } top
+            || !double.IsFinite(left) || !double.IsFinite(top))
+        {
+            settings.WindowLeft = null;
+            settings.WindowTop = null;
+        }
+
         return settings;
     }
 

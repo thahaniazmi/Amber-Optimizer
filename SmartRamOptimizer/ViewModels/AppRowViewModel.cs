@@ -7,9 +7,12 @@ namespace SmartRamOptimizer.ViewModels;
 /// <summary>One row of the application list.</summary>
 public sealed class AppRowViewModel : ObservableObject
 {
+    private const long MinFreedBytesShown = 1024 * 1024;
+
     private readonly Action _enabledChanged;
     private ImageSource? _icon;
     private string _statusText = "Not running";
+    private string _freedText = string.Empty;
     private bool _isRunning;
 
     public AppRowViewModel(ManagedApp model, Action enabledChanged)
@@ -73,6 +76,21 @@ public sealed class AppRowViewModel : ObservableObject
         private set => SetProperty(ref _isRunning, value);
     }
 
+    /// <summary>How much of this app's memory is being held back right now, or empty when there is nothing to show.</summary>
+    public string FreedText
+    {
+        get => _freedText;
+        private set
+        {
+            if (SetProperty(ref _freedText, value))
+            {
+                OnPropertyChanged(nameof(HasFreed));
+            }
+        }
+    }
+
+    public bool HasFreed => _freedText.Length > 0;
+
     public async Task LoadIconAsync()
     {
         var exePath = Model.ExePath;
@@ -84,39 +102,43 @@ public sealed class AppRowViewModel : ObservableObject
         }
     }
 
-    public void Update(AppUsage? usage, bool optimizerEnabled, bool aggressive)
+    public void Update(AppUsage? usage, bool optimizerEnabled)
     {
         if (usage is null || usage.ProcessCount == 0)
         {
             IsRunning = false;
             StatusText = "Not running";
+            FreedText = string.Empty;
             return;
         }
 
         IsRunning = true;
 
         var size = ByteFormat.Format(usage.WorkingSetBytes);
-        var processes = usage.ProcessCount == 1 ? "1 process" : $"{usage.ProcessCount} processes";
+        string detail;
 
         if (!optimizerEnabled)
         {
-            StatusText = $"{size} · paused";
+            detail = "paused";
         }
         else if (!IsEnabled)
         {
-            StatusText = $"{size} · not optimized";
-        }
-        else if (usage.AccessDenied)
-        {
-            StatusText = $"{size} · needs administrator";
-        }
-        else if (usage.IsForeground && !aggressive)
-        {
-            StatusText = $"{size} · {processes} · in use";
+            detail = "not optimized";
         }
         else
         {
-            StatusText = $"{size} · {processes}";
+            // Says why an app is being left alone, so a row that is not shrinking is never a mystery.
+            detail = usage.Activity switch
+            {
+                AppActivity.AccessDenied => "needs administrator",
+                AppActivity.InUse => "in use",
+                AppActivity.RecentlyUsed => $"trims in {usage.SecondsUntilTrim} s",
+                AppActivity.AlreadySmall => "already small",
+                _ => usage.ProcessCount == 1 ? "1 process" : $"{usage.ProcessCount} processes"
+            };
         }
+
+        StatusText = $"{size} · {detail}";
+        FreedText = usage.FreedBytes >= MinFreedBytesShown ? ByteFormat.Format(usage.FreedBytes) : string.Empty;
     }
 }

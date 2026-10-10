@@ -1,6 +1,9 @@
 using System.IO;
 using System.Security;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using SmartRamOptimizer.Models;
 using SmartRamOptimizer.Services;
@@ -10,15 +13,18 @@ namespace SmartRamOptimizer;
 
 /// <summary>
 /// Owns everything that outlives the window: the limiter, the tray icon and the settings.
-/// The window is only created when the user actually opens it.
+/// The window only exists while it is on screen; it is built when opened and let go when hidden.
 /// </summary>
 public partial class App : Application
 {
+    private const long OneMegabyte = 1024 * 1024;
+
     private SingleInstance? _instance;
     private RamLimiterService? _limiter;
     private MainViewModel? _viewModel;
     private TrayIcon? _tray;
     private MainWindow? _window;
+    private ContextMenu? _trayMenu;
     private MemorySnapshot? _latestSnapshot;
     private int _isSnapshotQueued;
     private bool _isExiting;
@@ -26,6 +32,10 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // The window is small and mostly still. Drawing it on the CPU keeps the graphics driver,
+        // which costs tens of megabytes, out of this process.
+        RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
 
         var startMinimized = e.Args.Any(arg =>
             string.Equals(arg, StartupService.MinimizedArgument, StringComparison.OrdinalIgnoreCase));
@@ -53,14 +63,13 @@ public partial class App : Application
         _limiter = new RamLimiterService();
         _viewModel = new MainViewModel(SettingsService.Load(), _limiter);
         _viewModel.SettingsChanged += SyncTray;
+        _viewModel.OptimizeNowCompleted += OnOptimizeNowCompleted;
         _viewModel.LaunchAtStartupFailed += () =>
             _tray?.ShowBalloon("Could not update Windows startup settings.", isWarning: true);
 
         _tray = new TrayIcon();
         _tray.OpenRequested += ShowWindow;
-        _tray.ExitRequested += ExitApp;
-        _tray.PauseChanged += isPaused => _viewModel.IsOptimizerEnabled = !isPaused;
-        _tray.LaunchAtStartupChanged += isEnabled => _viewModel.LaunchAtStartup = isEnabled;
+        _tray.MenuRequested += ShowTrayMenu;
         SyncTray();
 
         _limiter.SnapshotUpdated += OnSnapshotUpdated;
@@ -106,12 +115,66 @@ public partial class App : Application
 
         var isVisible = (bool)e.NewValue;
         _viewModel.IsViewActive = isVisible;
-        _limiter.IsUiVisible = isVisible;
 
-        if (!isVisible && _viewModel.TakeTrayHint())
+        if (isVisible)
+        {
+            _limiter.IsUiVisible = true;
+            return;
+        }
+
+        if (_viewModel.TakeTrayHint())
         {
             _tray?.ShowBalloon("Still running in the system tray.");
         }
+
+        // Not from inside this event: the window is still in the middle of hiding itself.
+        Dispatcher.BeginInvoke(ReleaseWindow, DispatcherPriority.ApplicationIdle);
+    }
+
+    // A hidden window still holds everything it drew. Closing it gives that memory back,
+    // and opening it again builds a new one in a fraction of a second.
+    private void ReleaseWindow()
+    {
+        if (_isExiting || _limiter is null || _window is not { IsVisible: false } window)
+        {
+            return;
+        }
+
+        // A dialog that is still open keeps its owner; the limiter is told either way.
+        if (window.OwnedWindows.Count == 0)
+        {
+            _window = null;
+            window.IsVisibleChanged -= Window_IsVisibleChanged;
+            window.ExitRequested -= ExitApp;
+            window.AllowClose = true;
+            window.Close();
+        }
+
+        _limiter.IsUiVisible = false;
+    }
+
+    private void ShowTrayMenu()
+    {
+        if (_isExiting || _viewModel is null || _tray is null || _trayMenu is { IsOpen: true })
+        {
+            return;
+        }
+
+        var menu = TrayMenu.Create(_viewModel, ShowWindow, ExitApp);
+        menu.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_trayMenu, menu))
+            {
+                _trayMenu = null;
+            }
+        };
+
+        _trayMenu = menu;
+        menu.IsOpen = true;
+
+        // A menu only notices a click somewhere else if its window is the active one.
+        var menuWindow = (PresentationSource.FromVisual(menu) as HwndSource)?.Handle ?? 0;
+        NativeMethods.SetForegroundWindow(menuWindow != 0 ? menuWindow : _tray.WindowHandle);
     }
 
     // Called on the limiter's thread. Only the newest snapshot matters, so at most one update is queued.
@@ -136,16 +199,28 @@ public partial class App : Application
         }
 
         _viewModel.ApplySnapshot(snapshot);
-        _tray?.SetStatus(_viewModel.IsOptimizerEnabled
-            ? $"{ByteFormat.Format(snapshot.FreedNowBytes)} freed"
-            : "Paused");
+        _tray?.SetStatus(_viewModel.TrayStatus);
+    }
+
+    // With the window open its button shows the result; from the tray menu a notification has to.
+    private void OnOptimizeNowCompleted(long freedBytes)
+    {
+        if (_window is { IsVisible: true })
+        {
+            return;
+        }
+
+        _tray?.ShowBalloon(freedBytes >= OneMegabyte
+            ? $"Freed {ByteFormat.Format(freedBytes)}."
+            : "Nothing more to free right now.");
     }
 
     private void SyncTray()
     {
-        if (_viewModel is not null)
+        if (_viewModel is not null && _tray is not null)
         {
-            _tray?.SetState(!_viewModel.IsOptimizerEnabled, _viewModel.LaunchAtStartup);
+            _tray.SetPaused(!_viewModel.IsOptimizerEnabled);
+            _tray.SetStatus(_viewModel.TrayStatus);
         }
     }
 
@@ -164,6 +239,11 @@ public partial class App : Application
     private void PrepareToExit()
     {
         _isExiting = true;
+
+        if (_trayMenu is not null)
+        {
+            _trayMenu.IsOpen = false;
+        }
 
         if (_window is not null)
         {

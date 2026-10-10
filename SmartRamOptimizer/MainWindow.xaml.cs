@@ -2,6 +2,8 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
 using SmartRamOptimizer.Services;
 using SmartRamOptimizer.ViewModels;
 
@@ -9,6 +11,8 @@ namespace SmartRamOptimizer;
 
 public partial class MainWindow : Window
 {
+    private static readonly Duration FadeInDuration = new(TimeSpan.FromMilliseconds(140));
+
     private readonly MainViewModel _viewModel;
 
     public MainWindow(MainViewModel viewModel)
@@ -16,6 +20,10 @@ public partial class MainWindow : Window
         _viewModel = viewModel;
         DataContext = viewModel;
         InitializeComponent();
+
+        // Never opens the placeholder page, which anyone could register and collect donations on.
+        CoffeeButton.Visibility = AppConfig.IsCoffeeUrlConfigured ? Visibility.Visible : Visibility.Collapsed;
+        RestorePosition();
     }
 
     /// <summary>Raised when the user picks "Quit" from the settings menu.</summary>
@@ -26,7 +34,13 @@ public partial class MainWindow : Window
 
     public void ShowAndActivate()
     {
-        Show();
+        if (!IsVisible)
+        {
+            // Fades in instead of popping onto the screen.
+            Opacity = 0;
+            Show();
+            BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, FadeInDuration));
+        }
 
         if (WindowState == WindowState.Minimized)
         {
@@ -44,6 +58,11 @@ public partial class MainWindow : Window
     {
         base.OnClosing(e);
 
+        if (IsVisible)
+        {
+            _viewModel.SaveWindowPosition(Left, Top);
+        }
+
         if (!AllowClose)
         {
             e.Cancel = true;
@@ -51,12 +70,50 @@ public partial class MainWindow : Window
         }
     }
 
+    // Comes back where the user left it, unless that spot is on a screen that is no longer there.
+    private void RestorePosition()
+    {
+        if (_viewModel.WindowPosition is not { } position)
+        {
+            return;
+        }
+
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var titleBar = new NativeMethods.Point
+        {
+            X = (int)((position.Left + (Width / 2)) * dpi.DpiScaleX),
+            Y = (int)((position.Top + 48) * dpi.DpiScaleY)
+        };
+
+        if (NativeMethods.MonitorFromPoint(titleBar, NativeMethods.MonitorDefaultToNull) != 0)
+        {
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            Left = position.Left;
+            Top = position.Top;
+        }
+    }
+
+    private void HideToTray()
+    {
+        _viewModel.SaveWindowPosition(Left, Top);
+        Hide();
+    }
+
     private void Window_StateChanged(object? sender, EventArgs e)
     {
         if (WindowState == WindowState.Minimized)
         {
-            Hide();
+            HideToTray();
             WindowState = WindowState.Normal;
+        }
+    }
+
+    private void Window_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape && !SettingsPopup.IsOpen)
+        {
+            e.Handled = true;
+            HideToTray();
         }
     }
 
@@ -70,7 +127,7 @@ public partial class MainWindow : Window
 
     private void HideButton_Click(object sender, RoutedEventArgs e)
     {
-        Hide();
+        HideToTray();
     }
 
     private void AddAppButton_Click(object sender, RoutedEventArgs e)
@@ -86,16 +143,25 @@ public partial class MainWindow : Window
         }
     }
 
+    private void NoticeActionButton_Click(object sender, RoutedEventArgs e)
+    {
+        _viewModel.RunNoticeAction();
+    }
+
+    private void NoticeDismissButton_Click(object sender, RoutedEventArgs e)
+    {
+        _viewModel.DismissNotice();
+    }
+
+    private void OptimizeNowButton_Click(object sender, RoutedEventArgs e)
+    {
+        _viewModel.OptimizeNow();
+    }
+
     private void CoffeeButton_Click(object sender, RoutedEventArgs e)
     {
         if (!AppConfig.IsCoffeeUrlConfigured)
         {
-            MessageBox.Show(
-                this,
-                "The support page hasn't been set up yet. Thanks for wanting to help!",
-                Title,
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
             return;
         }
 

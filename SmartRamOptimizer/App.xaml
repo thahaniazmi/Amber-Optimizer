@@ -322,9 +322,133 @@
             </Setter>
         </Style>
 
+        <!-- The one action the window is built around, e.g. "Optimize now". While it is disabled it
+             shows a result ("Freed 820 MB") instead of looking switched off. -->
+        <Style x:Key="PrimaryButtonStyle" TargetType="{x:Type Button}">
+            <Setter Property="Height" Value="42" />
+            <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="Surface"
+                                CornerRadius="14"
+                                Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="False" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="#6B77FF" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Surface" Property="Opacity" Value="0.8" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Surface" Property="Background" Value="{StaticResource PanelBrush}" />
+                                <Setter Property="Foreground" Value="{StaticResource GreenBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- The tray icon's right-click menu, dressed like the rest of the app. -->
+        <Style x:Key="TrayMenuStyle" TargetType="{x:Type ContextMenu}">
+            <Setter Property="MinWidth" Value="230" />
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="HasDropShadow" Value="False" />
+            <Setter Property="UseLayoutRounding" Value="True" />
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ContextMenu}">
+                        <Border Margin="10"
+                                Padding="6"
+                                CornerRadius="14"
+                                Background="{StaticResource PanelBrush}"
+                                BorderBrush="#34405A"
+                                BorderThickness="1">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="14"
+                                                  ShadowDepth="0"
+                                                  Opacity="0.4"
+                                                  Color="#05070C" />
+                            </Border.Effect>
+                            <StackPanel IsItemsHost="True"
+                                        KeyboardNavigation.DirectionalNavigation="Cycle" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Icon is a glyph from the icon font, or empty. -->
+        <Style x:Key="TrayMenuItemStyle" TargetType="{x:Type MenuItem}">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type MenuItem}">
+                        <Border x:Name="Surface"
+                                CornerRadius="9"
+                                Background="Transparent"
+                                Padding="10,8,18,8">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="26" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <ContentPresenter ContentSource="Icon"
+                                                  TextElement.FontFamily="{StaticResource IconFont}"
+                                                  TextElement.FontSize="13"
+                                                  TextElement.Foreground="{StaticResource SubtleBrush}"
+                                                  VerticalAlignment="Center" />
+                                <ContentPresenter Grid.Column="1"
+                                                  ContentSource="Header"
+                                                  VerticalAlignment="Center"
+                                                  RecognizesAccessKey="False" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="{StaticResource ControlBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="TrayMenuSeparatorStyle" TargetType="{x:Type Separator}">
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Separator}">
+                        <Border Height="1"
+                                Margin="8,5"
+                                Background="{StaticResource EdgeBrush}" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Foreground is the colour of the filled part, so a window can turn the bar amber or red. -->
         <Style x:Key="MemoryBarStyle" TargetType="{x:Type ProgressBar}">
             <Setter Property="Height" Value="6" />
             <Setter Property="Maximum" Value="100" />
+            <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type ProgressBar}">
@@ -335,7 +459,7 @@
                             <Border x:Name="PART_Indicator"
                                     CornerRadius="3"
                                     HorizontalAlignment="Left"
-                                    Background="{StaticResource AccentBrush}" />
+                                    Background="{TemplateBinding Foreground}" />
                         </Grid>
                     </ControlTemplate>
                 </Setter.Value>

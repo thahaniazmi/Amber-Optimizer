@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using SmartRamOptimizer.Models;
 
 namespace SmartRamOptimizer.Services;
@@ -15,14 +14,19 @@ public sealed class RamLimiterService : IDisposable
     private const int AggressiveSampleMs = 1500;
     private const int PostTrimDelayMs = 250;
 
-    // Gentle mode: leave the app in use alone (and for a while after the user switches away),
-    // and give background apps time between trims.
-    private const long GentleTrimIntervalMs = 30_000;
-    private const long BackgroundGraceMs = 30_000;
+    // Gentle mode leaves the app in use alone (and for a while after the user switches away) and gives
+    // background apps time between trims. How long depends on how full memory is: with plenty free there
+    // is nothing to gain from hurrying, and when it runs short the memory is wanted back sooner.
+    private const int BusyMemoryPercent = 60;
+    private const int TightMemoryPercent = 80;
+    private static readonly Pace RelaxedPace = new(GraceMs: 45_000, IntervalMs: 90_000);
+    private static readonly Pace NormalPace = new(GraceMs: 30_000, IntervalMs: 30_000);
+    private static readonly Pace TightPace = new(GraceMs: 10_000, IntervalMs: 15_000);
     private const long MinTrimBytes = 100L * 1024 * 1024;
 
     private const long PathLookupIntervalMs = 30_000;
     private const long SelfTrimIntervalMs = 60_000;
+    private const long CompactDelayMs = 2_000;
 
     private readonly Dictionary<string, AppState> _states = [];
     private readonly Dictionary<string, int> _appIndexByProcessName = new(StringComparer.OrdinalIgnoreCase);
@@ -32,17 +36,24 @@ public sealed class RamLimiterService : IDisposable
 
     private volatile LimiterConfig _config = LimiterConfig.Empty;
     private volatile bool _isUiVisible;
+    private volatile bool _compactRequested;
     private LimiterConfig? _indexedConfig;
     private CancellationTokenSource? _cancellation;
     private Task? _loopTask;
     private long _freedSessionBytes;
+    private long _ownMemoryBytes;
     private long _lastSelfTrimTick;
+    private long _compactAfterTick;
+    private int _trimNowRequested;
     private bool _disposed;
 
     /// <summary>Raised on a background thread after every measurement.</summary>
     public event Action<MemorySnapshot>? SnapshotUpdated;
 
-    /// <summary>While no window is showing, the loop slows down and trims this app's own memory too.</summary>
+    /// <summary>
+    /// While no window is showing, the loop slows down and looks after this app's own memory too:
+    /// it clears out what the window left behind and keeps its working set trimmed.
+    /// </summary>
     public bool IsUiVisible
     {
         get => _isUiVisible;
@@ -52,6 +63,8 @@ public sealed class RamLimiterService : IDisposable
             if (!value)
             {
                 Interlocked.Exchange(ref _lastSelfTrimTick, 0);
+                Interlocked.Exchange(ref _compactAfterTick, Environment.TickCount64 + CompactDelayMs);
+                _compactRequested = true;
             }
 
             RequestRefresh();
@@ -75,6 +88,16 @@ public sealed class RamLimiterService : IDisposable
     public void Configure(LimiterConfig config)
     {
         _config = config;
+        RequestRefresh();
+    }
+
+    /// <summary>
+    /// Trims every switched-on app at once, whatever it is doing and even while optimizing is paused.
+    /// The snapshot that follows reports what that freed.
+    /// </summary>
+    public void TrimNow()
+    {
+        Interlocked.Exchange(ref _trimNowRequested, 1);
         RequestRefresh();
     }
 
@@ -150,9 +173,11 @@ public sealed class RamLimiterService : IDisposable
         IndexConfig(config);
 
         var now = Environment.TickCount64;
+        var trimNow = Interlocked.Exchange(ref _trimNowRequested, 0) != 0;
+        var (totalBytes, availableBytes) = ProcessTools.GetSystemMemory();
+        var pace = GetPace(totalBytes, availableBytes);
         var scan = Scan(config);
         var foregroundProcessId = ProcessTools.GetForegroundProcessId();
-        var isForeground = new bool[config.Apps.Count];
         List<(int AppIndex, List<ProcessSample> Trimmed)>? pending = null;
 
         for (var i = 0; i < config.Apps.Count; i++)
@@ -160,20 +185,16 @@ public sealed class RamLimiterService : IDisposable
             var app = config.Apps[i];
             var processes = scan[i];
             var state = _states[app.Id];
+            state.Activity = AppActivity.Optimizing;
+            state.SecondsUntilTrim = 0;
 
-            if (!config.Enabled || !app.Enabled || processes.Count == 0)
+            if (!app.Enabled || processes.Count == 0 || !(config.Enabled || trimNow))
             {
                 state.StopTrimming();
                 continue;
             }
 
-            isForeground[i] = Contains(processes, foregroundProcessId);
-            if (isForeground[i])
-            {
-                state.LastForegroundTick = now;
-            }
-
-            if (!ShouldTrim(config.Aggressive, state, isForeground[i], TotalWorkingSet(processes), now))
+            if (!trimNow && !config.Aggressive && !IsDue(state, processes, foregroundProcessId, pace, now))
             {
                 continue;
             }
@@ -203,6 +224,8 @@ public sealed class RamLimiterService : IDisposable
             }
         }
 
+        long trimmedBytes = 0;
+
         if (pending is not null)
         {
             // Give Windows a moment to move the pages out, then measure what the trim achieved.
@@ -211,8 +234,10 @@ public sealed class RamLimiterService : IDisposable
 
             foreach (var (appIndex, trimmed) in pending)
             {
-                RecordTrim(_states[config.Apps[appIndex].Id], trimmed, scan[appIndex]);
+                trimmedBytes += RecordTrim(_states[config.Apps[appIndex].Id], trimmed, scan[appIndex]);
             }
+
+            (totalBytes, availableBytes) = ProcessTools.GetSystemMemory();
         }
 
         var usages = new AppUsage[config.Apps.Count];
@@ -237,44 +262,74 @@ public sealed class RamLimiterService : IDisposable
                 TotalWorkingSet(processes),
                 processes.Count,
                 freedBytes,
-                isForeground[i],
-                state.AccessDenied,
+                state.AccessDenied ? AppActivity.AccessDenied : state.Activity,
+                state.SecondsUntilTrim,
                 ResolveExePath(app, state, processes, now));
         }
 
-        var (totalBytes, availableBytes) = ProcessTools.GetSystemMemory();
-        SnapshotUpdated?.Invoke(new MemorySnapshot(usages, freedNowBytes, _freedSessionBytes, totalBytes, availableBytes));
+        SnapshotUpdated?.Invoke(new MemorySnapshot(
+            usages,
+            freedNowBytes,
+            _freedSessionBytes,
+            totalBytes,
+            availableBytes,
+            trimNow ? trimmedBytes : null,
+            _ownMemoryBytes));
 
-        if (!_isUiVisible && now - Interlocked.Read(ref _lastSelfTrimTick) >= SelfTrimIntervalMs)
-        {
-            Interlocked.Exchange(ref _lastSelfTrimTick, now);
-            ProcessTools.TrimSelf();
-        }
+        LookAfterOwnMemory(now);
     }
 
-    private static bool ShouldTrim(bool aggressive, AppState state, bool isForeground, long totalBytes, long now)
+    private static Pace GetPace(long totalBytes, long availableBytes)
     {
-        if (aggressive)
+        if (totalBytes <= 0)
         {
-            return true;
+            return NormalPace;
         }
 
-        if (isForeground || now - state.LastForegroundTick < BackgroundGraceMs)
+        var usedPercent = 100 - (100 * availableBytes / totalBytes);
+
+        if (usedPercent >= TightMemoryPercent)
         {
+            return TightPace;
+        }
+
+        return usedPercent >= BusyMemoryPercent ? NormalPace : RelaxedPace;
+    }
+
+    // Gentle mode's decision for one running app. When the answer is "not now", the state says why.
+    private static bool IsDue(AppState state, List<ProcessSample> processes, int foregroundProcessId, Pace pace, long now)
+    {
+        if (Contains(processes, foregroundProcessId))
+        {
+            state.LastForegroundTick = now;
+            state.Activity = AppActivity.InUse;
             return false;
         }
 
-        if (totalBytes < MinTrimBytes)
+        var sinceForeground = now - state.LastForegroundTick;
+        if (sinceForeground < pace.GraceMs)
         {
+            state.Activity = AppActivity.RecentlyUsed;
+            state.SecondsUntilTrim = (int)((pace.GraceMs - sinceForeground + 999) / 1000);
             return false;
         }
 
-        return state.LastTrimTick is not { } lastTrim || now - lastTrim >= GentleTrimIntervalMs;
+        if (TotalWorkingSet(processes) < MinTrimBytes)
+        {
+            // Small because an earlier trim made it so is the optimizer working, not a reason to explain.
+            state.Activity = state.Baselines.Count > 0 ? AppActivity.Optimizing : AppActivity.AlreadySmall;
+            return false;
+        }
+
+        return state.LastTrimTick is not { } lastTrim || now - lastTrim >= pace.IntervalMs;
     }
 
     // Remembers how much each process held before the trim, so "freed" can be reported honestly later.
-    private void RecordTrim(AppState state, List<ProcessSample> trimmed, List<ProcessSample> after)
+    // Returns what this trim moved out.
+    private long RecordTrim(AppState state, List<ProcessSample> trimmed, List<ProcessSample> after)
     {
+        long trimmedBytes = 0;
+
         foreach (var before in trimmed)
         {
             var index = after.FindIndex(sample => sample.ProcessId == before.ProcessId);
@@ -283,7 +338,7 @@ public sealed class RamLimiterService : IDisposable
                 continue;
             }
 
-            _freedSessionBytes += Math.Max(0, before.WorkingSetBytes - after[index].WorkingSetBytes);
+            trimmedBytes += Math.Max(0, before.WorkingSetBytes - after[index].WorkingSetBytes);
 
             if (!state.Baselines.TryGetValue(before.ProcessId, out var baseline)
                 || before.WorkingSetBytes >= baseline.Estimate(before.PrivateBytes))
@@ -291,6 +346,9 @@ public sealed class RamLimiterService : IDisposable
                 state.Baselines[before.ProcessId] = new Baseline(before.WorkingSetBytes, before.PrivateBytes);
             }
         }
+
+        _freedSessionBytes += trimmedBytes;
+        return trimmedBytes;
     }
 
     // Freed = what each trimmed process held before, minus what it has taken back since.
@@ -398,7 +456,7 @@ public sealed class RamLimiterService : IDisposable
         }
     }
 
-    // One pass over the system's process list covers every app.
+    // One pass over the system's process list covers every app, and this app's own figure for the window.
     private List<ProcessSample>[] Scan(LimiterConfig config)
     {
         var result = new List<ProcessSample>[config.Apps.Count];
@@ -407,33 +465,58 @@ public sealed class RamLimiterService : IDisposable
             result[i] = [];
         }
 
-        if (_appIndexByProcessName.Count == 0)
+        if (_appIndexByProcessName.Count == 0 && !_isUiVisible)
         {
             return result;
         }
 
-        foreach (var process in Process.GetProcesses())
+        var appIndexByName = _appIndexByProcessName.GetAlternateLookup<ReadOnlySpan<char>>();
+        var ownProcessId = Environment.ProcessId;
+        using var snapshot = ProcessSnapshot.Capture();
+
+        foreach (var process in snapshot)
         {
-            try
+            var processId = process.ProcessId;
+
+            if (processId == ownProcessId)
             {
-                if (process.Id > 4
-                    && process.Id != Environment.ProcessId
-                    && _appIndexByProcessName.TryGetValue(process.ProcessName, out var index))
-                {
-                    result[index].Add(new ProcessSample(process.Id, process.WorkingSet64, process.PrivateMemorySize64));
-                }
+                _ownMemoryBytes = process.PrivateWorkingSetBytes;
             }
-            catch (InvalidOperationException)
+            else if (processId > 4 && appIndexByName.TryGetValue(process.Name, out var index))
             {
-                // The process exited while it was being read.
-            }
-            finally
-            {
-                process.Dispose();
+                result[index].Add(new ProcessSample(processId, process.WorkingSetBytes, process.PrivateBytes));
             }
         }
 
         return result;
+    }
+
+    // Hidden in the tray, this app should be close to invisible in Task Manager as well.
+    private void LookAfterOwnMemory(long now)
+    {
+        if (_isUiVisible)
+        {
+            return;
+        }
+
+        var compact = _compactRequested && now >= Interlocked.Read(ref _compactAfterTick);
+        if (!compact && now - Interlocked.Read(ref _lastSelfTrimTick) < SelfTrimIntervalMs)
+        {
+            return;
+        }
+
+        if (compact)
+        {
+            // The window has just been closed. Collect everything it left behind (twice, so objects
+            // with clean-up code go too) and hand the emptied heap back to Windows.
+            _compactRequested = false;
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+        }
+
+        Interlocked.Exchange(ref _lastSelfTrimTick, now);
+        ProcessTools.TrimSelf();
     }
 
     private static bool Contains(List<ProcessSample> processes, int processId)
@@ -483,6 +566,9 @@ public sealed class RamLimiterService : IDisposable
         _wake.Dispose();
     }
 
+    /// <summary>How long gentle mode waits after an app was last active, and between two trims of it.</summary>
+    private readonly record struct Pace(long GraceMs, long IntervalMs);
+
     /// <summary>
     /// How much a process held when it was trimmed. If the process has since released memory
     /// by itself (its private bytes shrank), the estimate shrinks with it so that is not counted as freed.
@@ -507,6 +593,8 @@ public sealed class RamLimiterService : IDisposable
         public long LastForegroundTick { get; set; } = long.MinValue / 2;
         public long? LastPathLookupTick { get; set; }
         public bool AccessDenied { get; set; }
+        public AppActivity Activity { get; set; }
+        public int SecondsUntilTrim { get; set; }
         public string? ExePath { get; set; }
 
         // Baselines are kept: they describe the processes and are dropped as each one exits.

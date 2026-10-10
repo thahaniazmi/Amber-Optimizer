@@ -13,8 +13,6 @@ namespace SmartRamOptimizer;
 /// <summary>Lets the user pick a running app, or browse for an exe, to add to the optimizer.</summary>
 public partial class AddAppWindow : Window
 {
-    private const string AppName = "Smart RAM Optimizer";
-
     private readonly MainViewModel _viewModel;
     private readonly ObservableCollection<CandidateRowViewModel> _rows = [];
     private readonly ICollectionView _view;
@@ -106,22 +104,15 @@ public partial class AddAppWindow : Window
 
     private bool TryAdd(AppCandidate candidate)
     {
-        if (candidate.Advice.Suitability == Suitability.NotRecommended)
-        {
-            var answer = MessageBox.Show(
+        if (candidate.Advice.Suitability == Suitability.NotRecommended
+            && !ConfirmDialog.Show(
                 this,
-                $"Optimizing {candidate.Name} is not recommended.\n\n"
-                + $"{candidate.Advice.Reason}\n\n"
-                + "Add it anyway?",
-                AppName,
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning,
-                MessageBoxResult.No);
-
-            if (answer != MessageBoxResult.Yes)
-            {
-                return false;
-            }
+                $"{candidate.Name} is not recommended",
+                candidate.Advice.Reason,
+                "Add it anyway",
+                "Don't add"))
+        {
+            return false;
         }
 
         if (_viewModel.AddApp(candidate))

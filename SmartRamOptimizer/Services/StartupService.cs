@@ -9,7 +9,7 @@ public static class StartupService
     public const string MinimizedArgument = "--minimized";
 
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string RunValueName = "SmartRamOptimizer";
+    private const string RunValueName = AppIdentity.Name;
     // The value name used while the app was still called Discord RAM Limiter.
     private const string LegacyRunValueName = "DiscordRamLimiter";
 

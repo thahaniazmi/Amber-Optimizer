@@ -6,8 +6,8 @@ namespace SmartRamOptimizer.Services;
 /// </summary>
 internal sealed class SingleInstance : IDisposable
 {
-    private const string MutexName = @"Local\SmartRamOptimizer.Instance";
-    private const string ShowEventName = @"Local\SmartRamOptimizer.Show";
+    private const string MutexName = @"Local\" + AppIdentity.Name + ".Instance";
+    private const string ShowEventName = @"Local\" + AppIdentity.Name + ".Show";
 
     private readonly Mutex _mutex;
     private readonly EventWaitHandle _showEvent;

@@ -14,9 +14,10 @@
         Foreground="{StaticResource TextBrush}"
         UseLayoutRounding="True"
         StateChanged="Window_StateChanged"
+        KeyDown="Window_KeyDown"
         MouseLeftButtonDown="Window_MouseLeftButtonDown">
     <Window.Resources>
-        <!-- One application: icon, name, live usage, remove button, on/off switch. -->
+        <!-- One application: icon, name, live usage, what is freed, remove button, on/off switch. -->
         <DataTemplate x:Key="AppRowTemplate">
             <Border x:Name="Row"
                     Padding="0,11"
@@ -27,6 +28,7 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
@@ -64,8 +66,26 @@
                                    TextTrimming="CharacterEllipsis" />
                     </StackPanel>
 
+                    <StackPanel x:Name="Freed"
+                                Grid.Column="2"
+                                VerticalAlignment="Center"
+                                Visibility="Collapsed"
+                                ToolTip="Memory this app held before it was trimmed and has not taken back.">
+                        <TextBlock Text="{Binding FreedText}"
+                                   HorizontalAlignment="Right"
+                                   Foreground="{StaticResource GreenBrush}"
+                                   FontSize="13"
+                                   FontWeight="SemiBold" />
+                        <TextBlock Text="freed"
+                                   HorizontalAlignment="Right"
+                                   Margin="0,1,0,0"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   FontSize="11" />
+                    </StackPanel>
+
                     <Button x:Name="RemoveButton"
-                            Grid.Column="2"
+                            Grid.Column="3"
+                            Margin="2,0,0,0"
                             Style="{StaticResource IconButtonStyle}"
                             Content="&#xE74D;"
                             Opacity="0"
@@ -74,7 +94,7 @@
                             AutomationProperties.Name="{Binding RemoveLabel}"
                             Click="RemoveAppButton_Click" />
 
-                    <CheckBox Grid.Column="3"
+                    <CheckBox Grid.Column="4"
                               Margin="6,0,0,0"
                               Style="{StaticResource SwitchStyle}"
                               IsChecked="{Binding IsEnabled, Mode=TwoWay}"
@@ -90,6 +110,9 @@
                 </DataTrigger>
                 <DataTrigger Binding="{Binding IsRunning}" Value="False">
                     <Setter TargetName="IconHost" Property="Opacity" Value="0.5" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding HasFreed}" Value="True">
+                    <Setter TargetName="Freed" Property="Visibility" Value="Visible" />
                 </DataTrigger>
                 <!-- The remove button stays in the tree (keyboard and screen readers can reach it)
                      but only shows, and only takes clicks, once the row is pointed at or focused. -->
@@ -111,6 +134,20 @@
                     <Setter Property="Foreground" Value="{StaticResource GreenBrush}" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding StatusState}" Value="Paused">
+                    <Setter Property="Foreground" Value="{StaticResource RedBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Amber once memory is getting full, red when it is nearly gone. -->
+        <Style x:Key="SystemMemoryBarStyle"
+               TargetType="{x:Type ProgressBar}"
+               BasedOn="{StaticResource MemoryBarStyle}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding SystemMemoryLevel}" Value="High">
+                    <Setter Property="Foreground" Value="{StaticResource AmberBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding SystemMemoryLevel}" Value="Critical">
                     <Setter Property="Foreground" Value="{StaticResource RedBrush}" />
                 </DataTrigger>
             </Style.Triggers>
@@ -230,6 +267,60 @@
                     </Grid>
                 </Border>
 
+                <!-- A short message with an optional action: "Removed Discord · Undo". -->
+                <Border Margin="0,10,0,0"
+                        Padding="14,7,6,7"
+                        Background="{StaticResource PanelBrush}"
+                        CornerRadius="14">
+                    <Border.Style>
+                        <Style TargetType="{x:Type Border}">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsNoticeVisible}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding NoticeText}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource SubtleBrush}"
+                                   FontSize="12"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.AutomationId="NoticeText" />
+                        <Button Grid.Column="1"
+                                Margin="8,0,0,0"
+                                Height="28"
+                                Content="{Binding NoticeActionText}"
+                                AutomationProperties.AutomationId="NoticeActionButton"
+                                Click="NoticeActionButton_Click">
+                            <Button.Style>
+                                <Style TargetType="{x:Type Button}" BasedOn="{StaticResource PillButtonStyle}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasNoticeAction}" Value="False">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                        <Button Grid.Column="2"
+                                Margin="2,0,0,0"
+                                Style="{StaticResource IconButtonStyle}"
+                                Content="&#xE711;"
+                                FontSize="10"
+                                ToolTip="Dismiss"
+                                AutomationProperties.Name="Dismiss message"
+                                Click="NoticeDismissButton_Click" />
+                    </Grid>
+                </Border>
+
                 <Button Style="{StaticResource DashedButtonStyle}"
                         Margin="0,10,0,0"
                         AutomationProperties.Name="Add application"
@@ -298,13 +389,31 @@
                                FontSize="12"
                                AutomationProperties.AutomationId="SystemMemoryText" />
                 </Grid>
-                <ProgressBar Style="{StaticResource MemoryBarStyle}"
+                <ProgressBar Style="{StaticResource SystemMemoryBarStyle}"
                              Margin="2,0"
                              Value="{Binding SystemMemoryPercent, Mode=OneWay}"
                              AutomationProperties.Name="System memory in use" />
 
-                <Button Style="{StaticResource PillButtonStyle}"
-                        Margin="0,18,0,0"
+                <Button Style="{StaticResource PrimaryButtonStyle}"
+                        Margin="0,20,0,0"
+                        IsEnabled="{Binding CanOptimizeNow}"
+                        ToolTip="Trim every switched-on app right now, without waiting for it to sit in the background."
+                        AutomationProperties.Name="{Binding OptimizeNowText}"
+                        AutomationProperties.AutomationId="OptimizeNowButton"
+                        Click="OptimizeNowButton_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE945;"
+                                   FontFamily="{StaticResource IconFont}"
+                                   FontSize="13"
+                                   Margin="0,1,8,0"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding OptimizeNowText}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+
+                <Button x:Name="CoffeeButton"
+                        Style="{StaticResource PillButtonStyle}"
+                        Margin="0,14,0,0"
                         HorizontalAlignment="Center"
                         ToolTip="Support the people who make Smart RAM Optimizer"
                         AutomationProperties.Name="Buy us a coffee"
@@ -389,6 +498,14 @@
                             Content="Quit Smart RAM Optimizer"
                             AutomationProperties.AutomationId="QuitButton"
                             Click="QuitButton_Click" />
+
+                    <TextBlock Text="{Binding AboutText}"
+                               Margin="0,10,0,0"
+                               HorizontalAlignment="Center"
+                               Foreground="{StaticResource MutedBrush}"
+                               FontSize="11"
+                               ToolTip="The optimizer's own memory, as Task Manager counts it."
+                               AutomationProperties.AutomationId="AboutText" />
                 </StackPanel>
             </Border>
         </Popup>

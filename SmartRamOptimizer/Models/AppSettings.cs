@@ -28,7 +28,19 @@ public sealed class AppSettings
 
     public bool TrayHintShown { get; set; }
 
+    /// <summary>Set by "Pause for 1 hour" and the like: when a pause should end by itself. Null for an open-ended pause.</summary>
+    public DateTimeOffset? PausedUntil { get; set; }
+
+    /// <summary>Where the user last left the window, so it comes back in the same place.</summary>
+    public double? WindowLeft { get; set; }
+
+    public double? WindowTop { get; set; }
+
     public List<ManagedApp> Apps { get; set; } = [];
+
+    /// <summary>How many running apps the very first start found and added by itself. Not saved.</summary>
+    [JsonIgnore]
+    public int DetectedAppCount { get; set; }
 
     public static AppSettings CreateDefault()
     {

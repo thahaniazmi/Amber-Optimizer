@@ -17,36 +17,48 @@ public sealed record AppCandidate(
 /// <summary>Builds the list shown in the "Add application" window.</summary>
 internal static class RunningAppFinder
 {
-    /// <summary>Running apps the optimizer could manage, largest first. Call from a background thread.</summary>
+    /// <summary>
+    /// Running apps the optimizer could manage: the ones known to suit it first, the ones it warns
+    /// about last, and the largest first within each group. Call from a background thread.
+    /// </summary>
     public static List<AppCandidate> FindRunningApps()
+    {
+        return Find(recommendedOnly: false);
+    }
+
+    /// <summary>Only the running apps marked "Good to optimize", largest first, without their icons.</summary>
+    public static List<AppCandidate> FindRecommendedApps()
+    {
+        return Find(recommendedOnly: true);
+    }
+
+    private static List<AppCandidate> Find(bool recommendedOnly)
     {
         var groups = new Dictionary<string, (long Bytes, int Count, List<int> ProcessIds)>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var process in Process.GetProcesses())
+        using (var snapshot = ProcessSnapshot.Capture())
         {
-            try
+            foreach (var process in snapshot)
             {
                 // Session 0 is services and the system itself, not something the user runs.
-                if (process.Id <= 4 || process.SessionId == 0 || AppRules.IsProtectedProcess(process.ProcessName))
+                if (process.ProcessId <= 4 || process.SessionId == 0 || process.ProcessId == Environment.ProcessId)
                 {
                     continue;
                 }
 
-                if (!groups.TryGetValue(process.ProcessName, out var group))
+                var processName = process.Name.ToString();
+                if (AppRules.IsProtectedProcess(processName))
+                {
+                    continue;
+                }
+
+                if (!groups.TryGetValue(processName, out var group))
                 {
                     group = (0, 0, []);
                 }
 
-                group.ProcessIds.Add(process.Id);
-                groups[process.ProcessName] = (group.Bytes + process.WorkingSet64, group.Count + 1, group.ProcessIds);
-            }
-            catch (InvalidOperationException)
-            {
-                // The process exited while it was being read.
-            }
-            finally
-            {
-                process.Dispose();
+                group.ProcessIds.Add(process.ProcessId);
+                groups[processName] = (group.Bytes + process.WorkingSetBytes, group.Count + 1, group.ProcessIds);
             }
         }
 
@@ -54,6 +66,12 @@ internal static class RunningAppFinder
 
         foreach (var (processName, group) in groups)
         {
+            var advice = AppRules.GetAdvice(processName);
+            if (recommendedOnly && advice.Suitability != Suitability.Recommended)
+            {
+                continue;
+            }
+
             // No readable path means Windows will not let us open the process, so it could not be trimmed either.
             var exePath = group.ProcessIds.Take(3).Select(ProcessTools.TryGetImagePath).FirstOrDefault(path => path is not null);
             if (exePath is null || AppRules.IsUnderWindowsDirectory(exePath))
@@ -67,12 +85,26 @@ internal static class RunningAppFinder
                 exePath,
                 group.Bytes,
                 group.Count,
-                IconService.GetIcon(exePath),
-                AppRules.GetAdvice(processName)));
+                recommendedOnly ? null : IconService.GetIcon(exePath),
+                advice));
         }
 
-        candidates.Sort((left, right) => right.WorkingSetBytes.CompareTo(left.WorkingSetBytes));
+        candidates.Sort((left, right) =>
+        {
+            var byAdvice = Rank(left.Advice.Suitability).CompareTo(Rank(right.Advice.Suitability));
+            return byAdvice != 0 ? byAdvice : right.WorkingSetBytes.CompareTo(left.WorkingSetBytes);
+        });
         return candidates;
+    }
+
+    private static int Rank(Suitability suitability)
+    {
+        return suitability switch
+        {
+            Suitability.Recommended => 0,
+            Suitability.NotRecommended => 2,
+            _ => 1
+        };
     }
 
     /// <summary>Describes an exe the user browsed to. Returns null with a reason when it cannot be managed.</summary>

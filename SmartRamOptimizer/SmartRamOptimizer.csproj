@@ -3,9 +3,10 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
-    <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- For reading the system's process list straight out of the buffer Windows fills in. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>SmartRamOptimizer</RootNamespace>
     <AssemblyName>SmartRamOptimizer</AssemblyName>
     <ApplicationIcon>Assets\app_icon.ico</ApplicationIcon>
@@ -13,20 +14,28 @@
     <Product>Smart RAM Optimizer</Product>
     <Copyright>Copyright © 2021</Copyright>
     <Version>1.0.0</Version>
-    <!-- A tray app should stay small: no background GC thread, no localized satellite folders. -->
+    <!-- A tray app should stay small: no background GC thread, no profiling of its own code as it runs,
+         no localized satellite folders. -->
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>false</TieredPGO>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <DefaultItemExcludes>$(DefaultItemExcludes);bin\**;obj\**;artifacts\**;publish\**</DefaultItemExcludes>
   </PropertyGroup>
 
+  <!-- dotnet build -p:DevInstance=true makes a copy that runs beside the installed one (see AppIdentity). -->
+  <PropertyGroup Condition="'$(DevInstance)' == 'true'">
+    <DefineConstants>$(DefineConstants);DEV_INSTANCE</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
-    <Resource Include="Assets\app_icon.png" />
-    <Resource Include="Assets\app_icon.ico" />
+    <!-- .NET lets garbage pile up to a budget sized from the CPU cache (8 MB and more) before it collects.
+         This app makes very little, so a 2 MB budget keeps its memory small at no noticeable cost. -->
+    <RuntimeHostConfigurationOption Include="System.GC.Gen0MaxBudget" Value="2097152" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- WinForms is only here for the tray icon; keep its names out of the WPF code. -->
-    <Using Remove="System.Windows.Forms" />
-    <Using Remove="System.Drawing" />
+    <Resource Include="Assets\app_icon.png" />
+    <Resource Include="Assets\app_icon.ico" />
+    <Resource Include="Assets\app_icon_paused.ico" />
   </ItemGroup>
 </Project>
